@@ -6,23 +6,28 @@ Sigma Pile Sensitivity Analysis: Spent Fuel Slab Position in Zap Energy Z-Pinch 
 This script models a 1x1 cm rectangular prism of total length 150 cm (the approximate
 blanket/shield radius of Zap Energy's SFS Z-pinch fusion reactor, based on the 3 m
 diameter shielding vessel from the Fusion Core Concept design). The prism is filled
-with eutectic PbLi (Li-17Pb-83), and a 1 cm slab of spent fuel (loaded from the
-provided CSV inventory) is inserted at varying distances from the 14.1 MeV neutron
-source face. The script sweeps the slab position across the blanket depth and tracks
-key nuclear tallies at each position.
+with eutectic PbLi (Li-17Pb-83), and a slab of homogenized fuel zone material is
+inserted at varying distances from the 14.1 MeV neutron source face. The script sweeps
+the slab position across the blanket depth and tracks key nuclear tallies at each position.
+
+The fuel zone is homogenized from hex-can subassemblies consistent with a 4S-type
+fast reactor spent fuel design:
+    30 vol%  Spent U-10Zr metallic fuel (from CSV depletion inventory, 11.0 g/cm³)
+    20 vol%  HT-9 ferritic-martensitic steel cladding (7.87 g/cm³)
+    50 vol%  PbLi eutectic coolant (9.49 g/cm³)
 
 Geometry (for a given slab offset d):
   |<-- d -->|<-1cm->|<---- 150 - d - 1 ---->|
   [  PbLi   ][ Fuel ][        PbLi           ]
-  ^                                           ^
+  ^          [zone ]                          ^
   source face                            back face
 
 Tallies tracked:
   1. Tritium breeding rate in PbLi (Li6(n,t) + Li7(n,nt))
-  2. Fission rate in spent fuel slab
-  3. (n,gamma) capture rate in spent fuel
+  2. Fission rate in fuel zone slab
+  3. (n,gamma) capture rate in fuel zone
   4. (n,2n) reaction rate in PbLi (Pb neutron multiplication)
-  5. Neutron flux spectrum in spent fuel slab (725-group)
+  5. Neutron flux spectrum in fuel zone slab (725-group)
   6. Heating (energy deposition) in each region
   7. Neutron leakage (current) through the back face
 
@@ -48,9 +53,9 @@ except ImportError:
 CSV_PATH = "bol_inventory_zpinch.csv"         # Path to spent fuel inventory CSV
 TOTAL_LENGTH = 150.0                          # Total prism length [cm] — blanket radius
 CROSS_SECTION = 1.0                           # Cross section width/height [cm]
-FUEL_SLAB_THICKNESS = 1.0                     # Spent fuel slab thickness [cm]
+FUEL_SLAB_THICKNESS = 20.0                    # Spent fuel slab thickness [cm]
 # Slab midpoint positions [cm] — distance from the source face to the
-# centre of the 1 cm spent fuel slab.  Sweep covers the middle third of
+# centre of the 20 cm spent fuel slab.  Sweep covers the middle third of
 # the blanket so there is always PbLi on both sides of the slab.
 SLAB_MIDPOINTS = np.arange(
     TOTAL_LENGTH / 5.0,                          # ~30 cm
@@ -66,15 +71,21 @@ PARTICLES = 1000                             # Particles per batch
 PBLI_LI_ATOM_FRAC = 0.17                     # 17 at% Li (natural: 7.5% Li-6, 92.5% Li-7)
 PBLI_PB_ATOM_FRAC = 0.83                     # 83 at% Pb (natural isotopic mix)
 PBLI_DENSITY = 9.49                           # g/cm³ at ~500°C operating temperature
-# Spent fuel density — U-10Zr metallic alloy (consistent with ZFFR blanket design)
-SPENT_FUEL_DENSITY = 15.8                     # g/cm³
-OUTPUT_DIR = "sigma_pile_results"
+# Spent fuel density — U-10Zr metallic alloy at ~75% smear density after
+# burnup swelling (theoretical 15.8 g/cm³ × 0.75 ≈ 11.9 → ~11.0 with swell)
+SPENT_FUEL_DENSITY = 11.0                     # g/cm³ (consistent with ZFFR pin geometry)
+# HT-9 ferritic-martensitic steel cladding (12Cr-1MoVW)
+HT9_DENSITY = 7.87                            # g/cm³
+# Annular fuel zone volume fractions (hex-can subassemblies in flowing PbLi)
+FUEL_VOL_FRAC    = 0.30                       # 30% metallic fuel slugs
+CLAD_VOL_FRAC    = 0.20                       # 20% HT-9 cladding + wire wrap + hex duct
+COOLANT_VOL_FRAC = 0.50                       # 50% PbLi flowing through & around assemblies
+OUTPUT_DIR = f"sigma_pile_results_slab{f'{FUEL_SLAB_THICKNESS:.0f}'.zfill(2)}cm"
 # Nuclide groups for per-nuclide mesh tallies (neutron balance breakdown)
-KEY_ACTINIDES = ["U235", "U238", "Pu239"]
+KEY_ACTINIDES = ["U235", "U238", "Pu239", "Am241"]
 OTHER_ACTINIDES = [
-    "Am241", "Am243", "Np237", "Pu238", "Pu240", "Pu241", "Pu242",
-    "U234", "U236",
-]
+    "Am242", "Am243", "Np237", "Pu238", "Pu240", "Pu241", "Pu242",
+    "U234", "U236", ]
 ALL_ACTINIDES = KEY_ACTINIDES + OTHER_ACTINIDES
 PB_ISOTOPES = ["Pb204", "Pb206", "Pb207", "Pb208"]
 
@@ -172,6 +183,53 @@ def build_pbli_material():
 
 
 # ==============================================================================
+# Build HT-9 cladding material
+# ==============================================================================
+
+def build_ht9_material():
+    """
+    Build HT-9 ferritic-martensitic steel (12Cr-1MoVW).
+    Composition from standard HT-9 specification — same as ZFFR model.
+    """
+    ht9 = openmc.Material(name="HT9_steel")
+    ht9.add_element("Fe", 0.845, percent_type="wo")
+    ht9.add_element("Cr", 0.120, percent_type="wo")
+    ht9.add_element("Mo", 0.010, percent_type="wo")
+    ht9.add_element("W",  0.005, percent_type="wo")
+    ht9.add_element("V",  0.003, percent_type="wo")
+    ht9.add_element("Mn", 0.006, percent_type="wo")
+    ht9.add_element("Ni", 0.005, percent_type="wo")
+    ht9.add_element("Si", 0.004, percent_type="wo")
+    ht9.add_element("C",  0.002, percent_type="wo")
+    ht9.set_density("g/cm3", HT9_DENSITY)
+    return ht9
+
+
+# ==============================================================================
+# Build homogenized fuel zone (fuel + cladding + coolant)
+# ==============================================================================
+
+def build_fuel_zone_homogenized(fuel_mat, ht9_mat, pbli_mat):
+    """
+    Homogenize hex-can subassemblies into a single material.
+
+    Volume fractions (wire-wrapped pin bundle in hex duct):
+        Fuel slugs:     FUEL_VOL_FRAC    (metallic U-10Zr at smear density)
+        HT-9 steel:     CLAD_VOL_FRAC    (cladding + wire wrap + hex duct wall)
+        PbLi coolant:   COOLANT_VOL_FRAC  (flowing through and around assemblies)
+
+    Uses OpenMC's mix_materials to produce a single homogenized material.
+    """
+    fuel_zone = openmc.Material.mix_materials(
+        [fuel_mat, ht9_mat, pbli_mat],
+        [FUEL_VOL_FRAC, CLAD_VOL_FRAC, COOLANT_VOL_FRAC],
+        percent_type="vo",
+        name="Fuel_zone_homogenized"
+    )
+    return fuel_zone
+
+
+# ==============================================================================
 # Mesh tally I/O helpers
 # ==============================================================================
 
@@ -220,7 +278,9 @@ def run_case(slab_midpoint, pbli_mat, fuel_mat, run_index):
     pbli_mat : openmc.Material
         The PbLi blanket material.
     fuel_mat : openmc.Material
-        The spent fuel material (ignored when slab_midpoint is None).
+        The homogenized fuel zone material (30 vol% spent U-10Zr +
+        20 vol% HT-9 cladding + 50 vol% PbLi coolant).
+        Ignored when slab_midpoint is None.
     run_index : int
         Index for the parametric sweep (used for directory naming).
 
@@ -261,7 +321,7 @@ def run_case(slab_midpoint, pbli_mat, fuel_mat, run_index):
         pbli_back = pbli_mat.clone()
         pbli_back.name = "PbLi_back"
         fuel = fuel_mat.clone()
-        fuel.name = "Spent_Fuel"
+        fuel.name = "Fuel_Zone_Homogenized"
         materials = openmc.Materials([pbli_front, pbli_back, fuel])
 
     # ------------------------------------------------------------------
@@ -306,7 +366,7 @@ def run_case(slab_midpoint, pbli_mat, fuel_mat, run_index):
 
         # Spent fuel slab
         region_fuel = +z_fuel_front & -z_fuel_back & lateral
-        cell_fuel = openmc.Cell(name="Spent_Fuel_Slab", fill=fuel, region=region_fuel)
+        cell_fuel = openmc.Cell(name="Fuel_Zone_Slab", fill=fuel, region=region_fuel)
         cells.append(cell_fuel)
 
         # Back PbLi region
@@ -1101,7 +1161,8 @@ def plot_cumulative_neutron_balance(all_results):
 def main():
     print("=" * 72)
     print("  Sigma Pile Sensitivity Analysis")
-    print("  Zap Energy Z-Pinch: Spent Fuel Slab in PbLi Blanket")
+    print("  Zap Energy Z-Pinch: Homogenized Fuel Zone Slab in PbLi Blanket")
+    print("  Fuel zone: 30% spent U-10Zr / 20% HT-9 / 50% PbLi (by volume)")
     print("=" * 72)
     print(f"\n  Total prism length:      {TOTAL_LENGTH} cm")
     print(f"  Cross section:           {CROSS_SECTION} x {CROSS_SECTION} cm")
@@ -1117,6 +1178,9 @@ def main():
     print("Building PbLi eutectic material (Li-17Pb-83)...")
     pbli_mat = build_pbli_material()
 
+    print("Building HT-9 cladding material (Fe-12Cr-1MoVW)...")
+    ht9_mat = build_ht9_material()
+
     print(f"Loading spent fuel inventory from '{CSV_PATH}'...")
     inventory = parse_inventory(CSV_PATH)
     print(f"  Loaded {len(inventory)} nuclides (noble gases excluded)")
@@ -1130,6 +1194,16 @@ def main():
 
     fuel_mat = build_spent_fuel_material(inventory)
 
+    print(f"\n  Homogenizing fuel zone:")
+    print(f"    Fuel slugs (U-10Zr):  {FUEL_VOL_FRAC*100:.0f} vol%  @ {SPENT_FUEL_DENSITY} g/cm³")
+    print(f"    HT-9 cladding:        {CLAD_VOL_FRAC*100:.0f} vol%  @ {HT9_DENSITY} g/cm³")
+    print(f"    PbLi coolant:         {COOLANT_VOL_FRAC*100:.0f} vol%  @ {PBLI_DENSITY} g/cm³")
+    fuel_zone_mat = build_fuel_zone_homogenized(fuel_mat, ht9_mat, pbli_mat)
+    homog_density = (FUEL_VOL_FRAC * SPENT_FUEL_DENSITY
+                     + CLAD_VOL_FRAC * HT9_DENSITY
+                     + COOLANT_VOL_FRAC * PBLI_DENSITY)
+    print(f"    Effective homog. density: {homog_density:.2f} g/cm³")
+
     # Create output directory
     os.makedirs(OUTPUT_DIR, exist_ok=True)
 
@@ -1141,7 +1215,7 @@ def main():
     print(f"\n{chr(9472)*60}")
     print(f"  Case 1/{n_total}: NO FUEL (pure PbLi baseline)")
     print(f"{chr(9472)*60}")
-    result = run_case(None, pbli_mat, fuel_mat, 0)
+    result = run_case(None, pbli_mat, fuel_zone_mat, 0)
     all_results.append(result)
     print(f"  TBR           = {result.get('TBR_mean', 0):.6f} +/- {result.get('TBR_std', 0):.6f}")
     print(f"  (n,2n) rate   = {result.get('n2n_mean', 0):.6e} +/- {result.get('n2n_std', 0):.6e}")
@@ -1153,7 +1227,7 @@ def main():
         print(f"  Case {i+2}/{n_total}: slab midpoint = {midpt:.1f} cm")
         print(f"{chr(9472)*60}")
 
-        result = run_case(midpt, pbli_mat, fuel_mat, i + 1)
+        result = run_case(midpt, pbli_mat, fuel_zone_mat, i + 1)
         all_results.append(result)
 
         # Print summary for this case
