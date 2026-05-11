@@ -1,0 +1,13 @@
+<?xml version='1.0' encoding='UTF-8'?>
+<plots>
+  <plot id="1" filename="rz_cross_section" color_by="material" type="slice" basis="xz">
+    <pixels>2200 1600</pixels>
+    <origin>0 0 0</origin>
+    <width>440 320</width>
+  </plot>
+  <plot id="2" filename="xy_cross_section" color_by="material" type="slice" basis="xy">
+    <pixels>2200 2200</pixels>
+    <origin>0 0 0</origin>
+    <width>440 440</width>
+  </plot>
+</plots>

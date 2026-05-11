@@ -1,0 +1,16 @@
+<?xml version='1.0' encoding='UTF-8'?>
+<geometry>
+  <cell id="1" name="fuel" material="1" region="-1" universe="1"/>
+  <cell id="2" name="bond" material="2" region="1 -2" universe="1"/>
+  <cell id="3" name="clad" material="3" region="2 -3" universe="1"/>
+  <cell id="4" name="coolant" material="4" region="3 -4 5 -6 -7 8 9" universe="1"/>
+  <surface id="1" type="z-cylinder" coeffs="0.0 0.0 0.52"/>
+  <surface id="2" type="z-cylinder" coeffs="0.0 0.0 0.59"/>
+  <surface id="3" type="z-cylinder" coeffs="0.0 0.0 0.7"/>
+  <surface id="4" type="x-plane" boundary="reflective" coeffs="0.84"/>
+  <surface id="5" type="x-plane" boundary="reflective" coeffs="-0.84"/>
+  <surface id="6" type="plane" boundary="reflective" coeffs="0.5773502691896257 1.0 0.0 0.9699484522385713"/>
+  <surface id="7" type="plane" boundary="reflective" coeffs="-0.5773502691896257 1.0 0.0 0.9699484522385713"/>
+  <surface id="8" type="plane" boundary="reflective" coeffs="-0.5773502691896257 1.0 0.0 -0.9699484522385713"/>
+  <surface id="9" type="plane" boundary="reflective" coeffs="0.5773502691896257 1.0 0.0 -0.9699484522385713"/>
+</geometry>
