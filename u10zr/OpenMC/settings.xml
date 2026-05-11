@@ -1,9 +1,9 @@
 <?xml version='1.0' encoding='UTF-8'?>
 <settings>
   <run_mode>eigenvalue</run_mode>
-  <particles>10000</particles>
+  <particles>100</particles>
   <batches>120</batches>
-  <inactive>40</inactive>
+  <inactive>20</inactive>
   <source type="independent" strength="1.0" particle="neutron">
     <space type="cylindrical" origin="0.0 0.0 0.0">
       <r type="uniform" parameters="0.0 0.52"/>
@@ -12,5 +12,4 @@
     </space>
   </source>
   <temperature_method>interpolation</temperature_method>
-  <temperature_multipole>true</temperature_multipole>
 </settings>

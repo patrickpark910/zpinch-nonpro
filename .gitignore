@@ -1,0 +1,7 @@
+# Basics
+.DS_Store
+.git
+.venv
+
+# Jupyter Notebook
+.ipynb_checkpoints

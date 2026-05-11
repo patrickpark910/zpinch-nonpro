@@ -1,20 +1,20 @@
 <?xml version='1.0' encoding='utf-8'?>
 <materials>
-  <material id="1" name="U-10Zr fuel" depletable="true" volume="212.37166338267005" temperature="900.0">
+  <material id="100" name="U-10Zr fuel" depletable="true" volume="212.37166338267005" temperature="900.0">
     <density value="15.85" units="g/cm3"/>
     <nuclide name="Zr90" wo="0.050706117509233165"/>
     <nuclide name="Zr91" wo="0.011180887453100785"/>
     <nuclide name="Zr92" wo="0.01727810146362816"/>
     <nuclide name="Zr94" wo="0.017891104342343415"/>
     <nuclide name="Zr96" wo="0.0029437892316944896"/>
-    <nuclide name="U235" wo="0.171"/>
-    <nuclide name="U238" wo="0.7290000000000001"/>
+    <nuclide name="U235" wo="0.162"/>
+    <nuclide name="U238" wo="0.7380000000000001"/>
   </material>
-  <material id="2" name="Na bond" temperature="900.0">
+  <material id="200" name="Na bond" temperature="900.0">
     <density value="0.847" units="g/cm3"/>
     <nuclide name="Na23" ao="1.0"/>
   </material>
-  <material id="3" name="HT-9 cladding" temperature="840.0">
+  <material id="300" name="HT-9 cladding" temperature="840.0">
     <density value="7.87" units="g/cm3"/>
     <nuclide name="C12" wo="0.001976013690171373"/>
     <nuclide name="C13" wo="2.398630982862695e-05"/>
@@ -50,7 +50,7 @@
     <nuclide name="W184" wo="0.001532909604369155"/>
     <nuclide name="W186" wo="0.0014378349177371688"/>
   </material>
-  <material id="4" name="Na coolant" temperature="705.0">
+  <material id="400" name="Na coolant" temperature="705.0">
     <density value="0.847" units="g/cm3"/>
     <nuclide name="Na23" ao="1.0"/>
   </material>

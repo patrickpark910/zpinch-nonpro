@@ -34,6 +34,7 @@ Geometry and conditions from Toshiba NRC Pre-Application Review
 Adjust parameters in the "USER-EDITABLE PARAMETERS" section as needed.
 """
 
+import os
 import numpy as np
 import openmc
 import openmc.deplete
@@ -51,7 +52,7 @@ pin_pitch    = 1.680       # hex lattice pitch estimate (P/D ≈ 1.2 for SFR)
 
 # --- Fuel (Toshiba spec: inner 17%, outer 19%) ---
 # Model the OUTER core pin (bounding enrichment); switch to 0.17 for inner.
-enrich_u235  = 0.19        # U-235 enrichment (weight fraction), outer core
+enrich_u235  = 0.18        # U-235 enrichment (weight fraction), outer core
 wt_frac_zr   = 0.10        # Zr weight fraction in U-10Zr
 # NOTE: 78% smear density is geometric (fuel_slug_area / clad_ID_area),
 # already captured by the fuel slug and bond gap radii.  The slug itself
@@ -80,7 +81,7 @@ pin_length      = 250.0                            # active fuel length [cm] = 2
 # Depletion time steps (days).  30 years ≈ 10,957 days.
 # Use shorter steps early (high reactivity swing), then lengthen.
 days_per_year = 365.25
-total_years   = 30.0
+total_years   =  30.00
 
 # Build a schedule: 6 steps of 60d, then 10 steps of 180d, then remainder in 365d steps
 depletion_days = (
@@ -92,226 +93,348 @@ depletion_days = (
 
 # --- Monte Carlo settings ---
 batches      = 120
-inactive     = 40
-particles    = 10000       # increase for production runs (≥50 000)
+inactive     =  20
+particles    = int(1e2)       # increase for production runs (≥50 000)
+
+# --- Depletion chain ---
+chain_file = "/home/patri/openmc/data/chain_endfb81_fast.xml"
+
+# --- Output directories ---
+OPENMC_DIR   = "OpenMC"       # XMLs, H5s, statepoints, tallies
+RESULTS_DIR  = "./"      # figures, CSVs
+
+# --- Output file ---
+DEPLETE_FILE = os.path.join(OPENMC_DIR, "depletion_results.h5")
+
 
 # ============================================================
-# MATERIALS
+# FUNCTION 1: BUILD MODEL AND WRITE model.xml
 # ============================================================
 
-# --- Fuel: U-10Zr ---
-fuel = openmc.Material(name="U-10Zr fuel")
-fuel.set_density("g/cm3", fuel_density)
-fuel.temperature = fuel_temp
+def build_model():
+    """Construct the OpenMC model and export everything to a single model.xml.
 
-# Weight fractions of U and Zr
-wt_frac_u = 1.0 - wt_frac_zr
+    Returns
+    -------
+    model : openmc.Model
+        The fully-defined model object.
+    fuel_mat : openmc.Material
+        Reference to the depletable fuel material (needed for post-processing).
+    """
 
-# Add uranium isotopes (by weight within the uranium portion)
-fuel.add_nuclide("U235", wt_frac_u * enrich_u235,       percent_type="wo")
-fuel.add_nuclide("U238", wt_frac_u * (1.0 - enrich_u235), percent_type="wo")
+    # --- Fuel: U-10Zr ---
+    fuel = openmc.Material(material_id=100, name="U-10Zr fuel")
+    fuel.set_density("g/cm3", fuel_density)
+    fuel.temperature = fuel_temp
 
-# Add zirconium (natural isotopic mix)
-fuel.add_element("Zr", wt_frac_zr, percent_type="wo")
+    wt_frac_u = 1.0 - wt_frac_zr
+    fuel.add_nuclide("U235", wt_frac_u * enrich_u235,         percent_type="wo")
+    fuel.add_nuclide("U238", wt_frac_u * (1.0 - enrich_u235), percent_type="wo")
+    fuel.add_element("Zr", wt_frac_zr, percent_type="wo")
 
-# Mark as depletable
-fuel.depletable = True
-# Assign a volume for depletion normalisation
-fuel.volume = np.pi * fuel_or**2 * pin_length   # cm³ for one pin
+    fuel.depletable = True
+    fuel.volume = np.pi * fuel_or**2 * pin_length   # cm³ for one pin
 
-# --- Sodium bond (same Na, in fuel-clad gap) ---
-na_bond = openmc.Material(name="Na bond")
-na_bond.set_density("g/cm3", na_density)
-na_bond.temperature = fuel_temp   # bond sodium near fuel temperature
-na_bond.add_element("Na", 1.0)
+    # --- Sodium bond (same Na, in fuel-clad gap) ---
+    na_bond = openmc.Material(material_id=200, name="Na bond")
+    na_bond.set_density("g/cm3", na_density)
+    na_bond.temperature = fuel_temp
+    na_bond.add_element("Na", 1.0)
 
-# --- Cladding: HT-9 (simplified) ---
-clad = openmc.Material(name="HT-9 cladding")
-clad.set_density("g/cm3", clad_density)
-clad.temperature = clad_temp
-clad.add_element("Fe", 0.845, percent_type="wo")
-clad.add_element("Cr", 0.120, percent_type="wo")
-clad.add_element("Mo", 0.010, percent_type="wo")
-clad.add_element("W",  0.005, percent_type="wo")
-clad.add_element("V",  0.003, percent_type="wo")
-clad.add_element("Mn", 0.006, percent_type="wo")
-clad.add_element("Si", 0.004, percent_type="wo")
-clad.add_element("Ni", 0.005, percent_type="wo")
-clad.add_element("C",  0.002, percent_type="wo")
+    # --- Cladding: HT-9 (simplified) ---
+    clad = openmc.Material(material_id=300, name="HT-9 cladding")
+    clad.set_density("g/cm3", clad_density)
+    clad.temperature = clad_temp
+    clad.add_element("Fe", 0.845, percent_type="wo")
+    clad.add_element("Cr", 0.120, percent_type="wo")
+    clad.add_element("Mo", 0.010, percent_type="wo")
+    clad.add_element("W",  0.005, percent_type="wo")
+    clad.add_element("V",  0.003, percent_type="wo")
+    clad.add_element("Mn", 0.006, percent_type="wo")
+    clad.add_element("Si", 0.004, percent_type="wo")
+    clad.add_element("Ni", 0.005, percent_type="wo")
+    clad.add_element("C",  0.002, percent_type="wo")
 
-# --- Coolant: liquid sodium ---
-coolant = openmc.Material(name="Na coolant")
-coolant.set_density("g/cm3", na_density)
-coolant.temperature = na_temp
-coolant.add_element("Na", 1.0)
+    # --- Coolant: liquid sodium ---
+    coolant = openmc.Material(material_id=400, name="Na coolant")
+    coolant.set_density("g/cm3", na_density)
+    coolant.temperature = na_temp
+    coolant.add_element("Na", 1.0)
 
-materials = openmc.Materials([fuel, na_bond, clad, coolant])
-materials.export_to_xml()
+    materials = openmc.Materials([fuel, na_bond, clad, coolant])
 
-# ============================================================
-# GEOMETRY  — hexagonal pin-cell with reflective boundaries
-# ============================================================
+    # ---- Geometry — hexagonal pin-cell with reflective boundaries ----
 
-fuel_surface = openmc.ZCylinder(r=fuel_or)
-bond_surface = openmc.ZCylinder(r=bond_or)
-clad_surface = openmc.ZCylinder(r=clad_or)
+    fuel_surface = openmc.ZCylinder(surface_id=1, r=fuel_or)
+    bond_surface = openmc.ZCylinder(surface_id=2, r=bond_or)
+    clad_surface = openmc.ZCylinder(surface_id=3, r=clad_or)
 
-# Hexagonal prism bounding the unit cell (infinite in z)
-hex_prism = openmc.model.HexagonalPrism(
-    edge_length=pin_pitch / np.sqrt(3.0),
-    orientation="y",
-    boundary_type="reflective",
-)
+    min_z = openmc.ZPlane(surface_id=4, z0=-pin_length / 2, boundary_type="reflective")
+    max_z = openmc.ZPlane(surface_id=5, z0=pin_length / 2, boundary_type="reflective")
 
-fuel_cell    = openmc.Cell(name="fuel",    fill=fuel,    region=-fuel_surface)
-bond_cell    = openmc.Cell(name="bond",    fill=na_bond, region=+fuel_surface & -bond_surface)
-clad_cell    = openmc.Cell(name="clad",    fill=clad,    region=+bond_surface & -clad_surface)
-coolant_cell = openmc.Cell(name="coolant", fill=coolant, region=+clad_surface & -hex_prism)
+    hex_prism = openmc.model.HexagonalPrism(
+        edge_length=pin_pitch / np.sqrt(3.0),
+        orientation="y",
+        boundary_type="reflective",
+    )
 
-root_universe = openmc.Universe(cells=[fuel_cell, bond_cell, clad_cell, coolant_cell])
-geometry = openmc.Geometry(root_universe)
-geometry.export_to_xml()
+    # Update your cells to be bounded by the Z-planes
+    fuel_cell = openmc.Cell(cell_id=10, name="fuel", fill=fuel, region=-fuel_surface & +min_z & -max_z)
+    bond_cell = openmc.Cell(cell_id=20, name="bond", fill=na_bond, region=+fuel_surface & -bond_surface & +min_z & -max_z)
+    clad_cell = openmc.Cell(cell_id=30, name="clad", fill=clad, region=+bond_surface & -clad_surface & +min_z & -max_z)
+    coolant_cell = openmc.Cell(cell_id=40, name="coolant", fill=coolant, region=+clad_surface & -hex_prism & +min_z & -max_z)
 
-# ============================================================
-# SETTINGS
-# ============================================================
+    root_universe = openmc.Universe(universe_id=1, cells=[fuel_cell, bond_cell, clad_cell, coolant_cell])
+    geometry = openmc.Geometry(root_universe)
 
-settings = openmc.Settings()
-settings.batches  = batches
-settings.inactive = inactive
-settings.particles = particles
-settings.temperature = {
-    "method": "interpolation",
-    "multipole": True,
-}
+    # ---- Settings ----
 
-# Initial source — uniform in the fuel slug
-r_src = openmc.stats.Uniform(0.0, fuel_or)
-theta_src = openmc.stats.Uniform(0.0, 2 * np.pi)
-z_src = openmc.stats.Uniform(-pin_length / 2, pin_length / 2)
-src_spatial = openmc.stats.CylindricalIndependent(r_src, theta_src, z_src)
-settings.source = openmc.IndependentSource(space=src_spatial)
+    settings = openmc.Settings()
+    settings.batches   = batches
+    settings.inactive  = inactive
+    settings.particles = particles
+    settings.temperature = {"method": "interpolation",}
 
-settings.export_to_xml()
+    r_src     = openmc.stats.Uniform(0.0, fuel_or)
+    theta_src = openmc.stats.Uniform(0.0, 2 * np.pi)
+    z_src     = openmc.stats.Uniform(-pin_length / 2, pin_length / 2)
+    src_spatial = openmc.stats.CylindricalIndependent(r_src, theta_src, z_src)
+    settings.source = openmc.IndependentSource(space=src_spatial)
 
-# ============================================================
-# TALLIES (optional — k-eff is tracked automatically)
-# ============================================================
+    # ---- Tallies (optional — k-eff is tracked automatically) ----
 
-tallies = openmc.Tallies()
+    tallies = openmc.Tallies()
 
-# Flux spectrum in the fuel (for sanity-checking the fast spectrum)
-energy_filter = openmc.EnergyFilter(np.logspace(np.log10(1e-5), np.log10(20e6), 201))
-cell_filter   = openmc.CellFilter(fuel_cell)
+    energy_filter = openmc.EnergyFilter(np.logspace(np.log10(1e-5), np.log10(20e6), 201))
+    cell_filter   = openmc.CellFilter(fuel_cell)
 
-flux_tally = openmc.Tally(name="fuel flux spectrum")
-flux_tally.filters = [cell_filter, energy_filter]
-flux_tally.scores  = ["flux"]
-tallies.append(flux_tally)
+    flux_tally = openmc.Tally(tally_id=1, name="fuel flux spectrum")
+    flux_tally.filters = [cell_filter, energy_filter]
+    flux_tally.scores  = ["flux"]
+    tallies.append(flux_tally)
 
-# Fission rate in fuel
-fission_tally = openmc.Tally(name="fission rate")
-fission_tally.filters = [cell_filter]
-fission_tally.scores  = ["fission"]
-tallies.append(fission_tally)
+    fission_tally = openmc.Tally(tally_id=2, name="fission rate")
+    fission_tally.filters = [cell_filter]
+    fission_tally.scores  = ["fission"]
+    tallies.append(fission_tally)
 
-tallies.export_to_xml()
+    # ---- Assemble model and write single model.xml ----
+
+    model = openmc.Model(geometry, materials, settings, tallies)
+    # model.export_to_model_xml() # don't export for depletion calcs
+    # print("Wrote model.xml")
+
+    return model, fuel
+
 
 # ============================================================
-# DEPLETION
+# FUNCTION 2: RUN DEPLETION
 # ============================================================
 
-print("=" * 60)
-print("4S Pin-Cell Depletion Model (Toshiba PSN-2008-0045)")
-print("=" * 60)
-print(f"  Fuel          : U-{wt_frac_zr*100:.0f}Zr, {enrich_u235*100:.0f}% U-235 (outer core)")
-print(f"  Fuel slug OD  : {fuel_or*20:.1f} mm")
-print(f"  Clad OD / t   : {clad_or*20:.1f} mm / {(clad_or - bond_or)*10:.1f} mm")
-print(f"  Smear density : {(fuel_or/bond_or)**2*100:.0f}%")
-print(f"  Fuel density  : {fuel_density} g/cm³ (theoretical)")
-print(f"  Cladding      : HT-9")
-print(f"  Coolant       : Na, inlet/outlet 355/510 °C")
-print(f"  Pin power     : {pin_power:.1f} W  ({pin_power/pin_length*100:.1f} W/cm)")
-print(f"  Assembly      : {pins_per_assy} pins  (1 of {n_assemblies} in core)")
-print(f"  Assy power    : {assy_power/1e6:.3f} MWth")
-print(f"  Depletion     : {sum(depletion_days)/days_per_year:.1f} years "
-      f"in {len(depletion_days)} steps")
-print(f"  MC particles  : {particles} / batch × {batches} batches")
-print("=" * 60)
+def run_depletion(model):
+    """Set up the depletion operator and integrator, then run.
 
-# ENDF/B-VIII.0 SFR depletion chain
-chain_file = "/Users/patrickpark/git-repos/openmc-data/endfb-8.0-hdf5/chain_endfb80_sfr.xml"
+    Parameters
+    ----------
+    model : openmc.Model
+        The OpenMC model (already exported to model.xml).
+    """
 
-# Create the transport operator
-model = openmc.Model(geometry, materials, settings)
+    print("=" * 60)
+    print("4S Pin-Cell Depletion Model (Toshiba PSN-2008-0045)")
+    print("=" * 60)
+    print(f"  Fuel          : U-{wt_frac_zr*100:.0f}Zr, {enrich_u235*100:.0f}% U-235 (outer core)")
+    print(f"  Fuel slug OD  : {fuel_or*20:.1f} mm")
+    print(f"  Clad OD / t   : {clad_or*20:.1f} mm / {(clad_or - bond_or)*10:.1f} mm")
+    print(f"  Smear density : {(fuel_or/bond_or)**2*100:.0f}%")
+    print(f"  Fuel density  : {fuel_density} g/cm³ (theoretical)")
+    print(f"  Cladding      : HT-9")
+    print(f"  Coolant       : Na, inlet/outlet 355/510 °C")
+    print(f"  Pin power     : {pin_power:.1f} W  ({pin_power/pin_length*100:.1f} W/cm)")
+    print(f"  Assembly      : {pins_per_assy} pins  (1 of {n_assemblies} in core)")
+    print(f"  Assy power    : {assy_power/1e6:.3f} MWth")
+    print(f"  Depletion     : {sum(depletion_days)/days_per_year:.1f} years "
+          f"in {len(depletion_days)} steps")
+    print(f"  MC particles  : {particles} / batch × {batches} batches")
+    print("=" * 60)
 
-operator = openmc.deplete.CoupledOperator(
-    model,
-    chain_file=chain_file,
-    normalization_mode="source-rate",
-)
+    # Run depletion from the openmc output directory so all
+    # intermediate files (XMLs, H5s, statepoints) land there.
+    orig_dir = os.getcwd()
+    os.chdir(OPENMC_DIR)
 
-# Use the predictor-corrector (CE/CM) integrator
-integrator = openmc.deplete.CECMIntegrator(
-    operator,
-    depletion_days,                # time steps in days
-    power=pin_power,               # constant power per pin [W]
-    timestep_units="d",
-)
+    operator = openmc.deplete.CoupledOperator(
+        model,
+        chain_file=chain_file,
+        normalization_mode="fission-q",
+    )
 
-# Run the depletion calculation
-integrator.integrate()
+    integrator = openmc.deplete.CECMIntegrator(
+        operator,
+        depletion_days,
+        power=pin_power,
+        timestep_units="d",
+    )
 
-print("\nDepletion calculation complete.")
+    integrator.integrate()
 
-# ============================================================
-# POST-PROCESSING  — extract k-eff vs. time and key nuclides
-# ============================================================
+    os.chdir(orig_dir)
+    print("\nDepletion calculation complete.")
 
-results = openmc.deplete.Results("depletion_results.h5")
-
-# Extract k-effective
-time_steps, keffs = results.get_keff()
-time_years = time_steps / days_per_year    # convert days → years
-
-print("\n  Time [yr]     k-eff       ± σ")
-print("  " + "-" * 38)
-for t, (k, sig) in zip(time_years, keffs):
-    print(f"  {t:8.2f}     {k:.5f}   ± {sig:.5f}")
-
-# Extract selected nuclide inventories (atoms) in the fuel
-nuclides_of_interest = [
-    "U235", "U238", "Pu239", "Pu240", "Pu241",
-    "Zr93", "Cs137", "Sr90", "Xe135",
-]
-
-print("\n  Nuclide inventories at end of life (atoms):")
-print("  " + "-" * 44)
-
-_, atoms = results.get_atoms(fuel, nuclides_of_interest)
-for i, nuc in enumerate(nuclides_of_interest):
-    print(f"  {nuc:8s}  {atoms[i, -1]:.4e}")
 
 # ============================================================
-# OPTIONAL: save a quick matplotlib plot of k-eff vs burnup
+# FUNCTION 3: POST-PROCESS DEPLETION RESULTS
 # ============================================================
 
-try:
-    import matplotlib
-    matplotlib.use("Agg")
-    import matplotlib.pyplot as plt
+def post_process(fuel_mat):
+    results = openmc.deplete.Results(DEPLETE_FILE)
 
-    fig, ax = plt.subplots(figsize=(8, 5))
-    ax.errorbar(time_years, keffs[:, 0], yerr=keffs[:, 1],
-                fmt="o-", markersize=3, capsize=2, label=r"$k_\mathrm{eff}$")
-    ax.axhline(1.0, color="grey", ls="--", lw=0.8)
-    ax.set_xlabel("Irradiation time [years]")
-    ax.set_ylabel(r"$k_\mathrm{eff}$")
-    ax.set_title("4S Pin-Cell Depletion — U-10Zr / Na / HT-9")
-    ax.legend()
-    ax.grid(True, alpha=0.3)
-    fig.tight_layout()
-    fig.savefig("keff_vs_time.png", dpi=150)
-    print("\n  Plot saved to keff_vs_time.png")
-except ImportError:
-    print("\n  matplotlib not available — skipping plot.")
+    # --- k-eff vs. time ---
+    time_steps, keffs = results.get_keff()
+    time_years = time_steps / (days_per_year * 86400)
+
+    # --- Find material and nuclide indices from first step ---
+    r0 = results[0]
+    print("Material index map:", r0.index_mat)
+
+    # Get the integer index for our fuel material (only 1 depletable mat)
+    mat_idx = list(r0.index_mat.values())[0]
+
+    nuclides_of_interest = [
+        "U235", "U238", "Pu239", "Pu240", "Pu241",
+        "Zr93", "Cs137", "Sr90", "Xe135",
+    ]
+
+    nuclides_tracked = [
+        # Actinides
+        "U234", "U235", "U236", "U238",
+        "Np237",
+        "Pu238", "Pu239", "Pu240", "Pu241", "Pu242",
+        "Am241", "Am242_m1", "Am243",
+        "Cm242", "Cm243", "Cm244", "Cm245",
+        # Zirconium matrix
+        "Zr90", "Zr91", "Zr92", "Zr93", "Zr94", "Zr95", "Zr96",
+        # High-absorption fission products
+        "Sm149", "Sm151", "Gd155", "Gd157",
+        "Rh103", "Nd143", "Nd145", "Cs133",
+        "Eu151", "Eu153", "Ag109",
+        # High-inventory fission products
+        "Mo95", "Mo97", "Mo98", "Mo100",
+        "Xe126", "Xe128", "Xe130", "Xe131", "Xe132", "Xe134", "Xe136",
+        "Kr80", "Kr82", "Kr83", "Kr84", "Kr86",
+        "Cs135", "Cs137",
+        "Ba138", "La139", "Ce140", "Ce142",
+        "Tc99", "Pr141", "Ru101", "Ru102",
+        "Nd144", "Nd146", "Y89", "Sr88", "Sr90",
+    ]
+
+    # --- Combined table: k-eff + U235 at each step ---
+    print("\n  Time [yr]     k-eff       ± σ          U235 [atoms]")
+    print("  " + "-" * 58)
+    u235_idx = r0.index_nuc["U235"]
+    for i, (t, (k, sig)) in enumerate(zip(time_years, keffs)):
+        step = results[i]
+        u235 = step.data[mat_idx, u235_idx]
+        print(f"  {t:8.2f}     {k:.5f}   ± {sig:.5f}    {u235:.4e}")
+
+    # --- EOL inventories ---
+    print("\n  Nuclide inventories at end of life (atoms):")
+    print("  " + "-" * 44)
+    last = results[-1]
+    for nuc in nuclides_of_interest:
+        if nuc in last.index_nuc:
+            nuc_idx = last.index_nuc[nuc]
+            print(f"  {nuc:8s}  {last.data[mat_idx, nuc_idx]:.4e}")
+        else:
+            print(f"  {nuc:8s}  (not in chain)")
+
+    # --- Tracked nuclides for Z-pinch blanket ---
+    print("\n  Tracked nuclides for Z-pinch spent fuel (atoms):")
+    print("  " + "-" * 44)
+    last = results[-1]
+    for nuc in nuclides_tracked:
+        if nuc in last.index_nuc:
+            nuc_idx = last.index_nuc[nuc]
+            val = last.data[mat_idx, nuc_idx]
+            print(f"  {nuc:10s}  {val:.4e}")
+        else:
+            print(f"  {nuc:10s}  (not in chain)")
+
+    last = results[-1]
+    mat_idx = list(last.index_mat.values())[0]
+    inventory = [(nuc, last.data[mat_idx, idx]) for nuc, idx in last.index_nuc.items()]
+    inventory.sort(key=lambda x: x[1], reverse=True)
+
+    # print("\n  All nuclide inventories at EOL (atoms), descending:")
+    # print("  " + "-" * 44)
+    # for nuc, val in inventory:
+    #     if val > 0:
+    #         print(f"  {nuc:8s}  {val:.4e}")
+
+    print("\n  Saving EOL inventory to CSV file...")
+    import csv
+    csv_path = os.path.join(RESULTS_DIR, "eol_inventory.csv")
+    with open(csv_path, "w", newline="") as f:
+        writer = csv.writer(f)
+        writer.writerow(["nuclide", "atoms"])
+        for nuc, val in inventory:
+            if val > 0:
+                writer.writerow([nuc, f"{val:.6e}"])
+    print(f"  Saved to {csv_path}")
+
+    # --- Save tracked nuclides as separate CSV for Z-pinch input ---
+    print("\n  Saving tracked nuclide inventory to CSV file...")
+    csv_tracked_path = os.path.join(RESULTS_DIR, "eol_inventory_tracked.csv")
+    with open(csv_tracked_path, "w", newline="") as f:
+        writer = csv.writer(f)
+        writer.writerow(["nuclide", "atoms"])
+        for nuc in nuclides_tracked:
+            if nuc in last.index_nuc:
+                nuc_idx = last.index_nuc[nuc]
+                val = last.data[mat_idx, nuc_idx]
+                if val > 0:
+                    writer.writerow([nuc, f"{val:.6e}"])
+    print(f"  Saved to {csv_tracked_path}")
+
+    # --- Plot ---
+    try:
+        import matplotlib
+        matplotlib.use("Agg")
+        import matplotlib.pyplot as plt
+
+        fig, ax = plt.subplots(figsize=(8, 5))
+        ax.errorbar(time_years, keffs[:, 0], yerr=keffs[:, 1],
+                    fmt="o-", markersize=3, capsize=2, label=r"$k_\mathrm{eff}$")
+        ax.axhline(1.0, color="grey", ls="--", lw=0.8)
+        ax.set_xlabel("Irradiation time [years]")
+        ax.set_ylabel(r"$k_\mathrm{eff}$")
+        ax.set_title("4S Pin-Cell Depletion — U-10Zr / Na / HT-9")
+        ax.legend()
+        ax.grid(True, alpha=0.3)
+        fig.tight_layout()
+        plot_path = os.path.join(RESULTS_DIR, "keff_vs_time.png")
+        fig.savefig(plot_path, dpi=150)
+        print(f"\n  Plot saved to {plot_path}")
+    except ImportError:
+        print("\n  matplotlib not available — skipping plot.")
+
+
+# ============================================================
+# MAIN
+# ============================================================
+
+if __name__ == "__main__":
+
+    # Create output directories
+    os.makedirs(OPENMC_DIR, exist_ok=True)
+    os.makedirs(RESULTS_DIR, exist_ok=True)
+
+    # Always build the model (needed for fuel material reference)
+    model, fuel_mat = build_model()
+
+    if os.path.isfile(DEPLETE_FILE):
+        print(f"\n{DEPLETE_FILE} already exists--skipping depletion, jumping to post-processing.\n")
+    else:
+        run_depletion(model)
+
+    post_process(fuel_mat)
