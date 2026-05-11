@@ -518,11 +518,11 @@ def run_case(slab_midpoint, pbli_mat, fuel_mat, run_index):
     # Per-nuclide mesh tallies for neutron balance breakdown
     # ------------------------------------------------------------------
     if not no_fuel:
-        # Tally A: key actinides — fission, nu-fission, capture, (n,2n)
+        # Tally A: key actinides — fission, nu-fission, capture, (n,2n), (n,3n)
         nuc_key_tally = openmc.Tally(name="mesh_key_actinides")
         nuc_key_tally.filters = [mesh_filter]
         nuc_key_tally.nuclides = KEY_ACTINIDES
-        nuc_key_tally.scores = ["fission", "nu-fission", "(n,gamma)", "(n,2n)"]
+        nuc_key_tally.scores = ["fission", "nu-fission", "(n,gamma)", "(n,2n)", "(n,3n)"]
         tallies.append(nuc_key_tally)
 
         # Tally B: other actinides — fission, nu-fission, capture
@@ -675,15 +675,16 @@ def run_case(slab_midpoint, pbli_mat, fuel_mat, run_index):
         nbal["pb_n2n"] = pb_data[:, :, 0].sum(axis=1)  # sum over Pb isotopes
 
         if not no_fuel:
-            # Key actinides: shape (N_MESH_Z, 3 nuclides, 4 scores)
+            # Key actinides: shape (N_MESH_Z, N_key nuclides, 5 scores)
             ka_t = sp_file.get_tally(name="mesh_key_actinides")
-            ka_scores = ["fission", "nu-fission", "(n,gamma)", "(n,2n)"]
+            ka_scores = ["fission", "nu-fission", "(n,gamma)", "(n,2n)", "(n,3n)"]
             ka = ka_t.mean.flatten().reshape(N_MESH_Z, len(KEY_ACTINIDES), len(ka_scores))
             for ni, nuc in enumerate(KEY_ACTINIDES):
                 nbal[f"{nuc}_fission"]    = ka[:, ni, 0]
                 nbal[f"{nuc}_nu_fission"] = ka[:, ni, 1]
                 nbal[f"{nuc}_ngamma"]     = ka[:, ni, 2]
                 nbal[f"{nuc}_n2n"]        = ka[:, ni, 3]
+                nbal[f"{nuc}_n3n"]        = ka[:, ni, 4]
 
             # Other actinides: shape (N_MESH_Z, N_other, 3 scores)
             oa_t = sp_file.get_tally(name="mesh_other_actinides")
@@ -1017,6 +1018,23 @@ def plot_neutron_balance(all_results):
             net = nu_f - fiss  # net neutrons gained from fission
             ax.plot(z, net, color=color, linewidth=1.2, label=f"{nuc} fission net gain")
 
+        # --- Am-241 specific channels ---
+        am_fiss = data.get("Am241_fission", np.zeros_like(z))
+        am_nuf  = data.get("Am241_nu_fission", np.zeros_like(z))
+        am_net  = am_nuf - am_fiss
+        ax.plot(z, am_net, color="tab:pink", linewidth=1.2,
+                label="Am241 fission net gain")
+
+        am_n2n = data.get("Am241_n2n", np.zeros_like(z))
+        if am_n2n.max() > 1e-20:
+            ax.plot(z, am_n2n, color="tab:pink", linewidth=1.0, linestyle="--",
+                    label="Am241 (n,2n) gain")
+
+        am_n3n = data.get("Am241_n3n", np.zeros_like(z))
+        if am_n3n.max() > 1e-20:
+            ax.plot(z, 2.0 * am_n3n, color="tab:pink", linewidth=1.0, linestyle=":",
+                    label="Am241 (n,3n) gain (\u00d72)")
+
         oa_fiss = data.get("other_act_fission", np.zeros_like(z))
         oa_nuf  = data.get("other_act_nu_fission", np.zeros_like(z))
         oa_net  = oa_nuf - oa_fiss
@@ -1106,6 +1124,25 @@ def plot_cumulative_neutron_balance(all_results):
             ax.plot(z, net, color=color, linewidth=1.5, linestyle=ls,
                     label=f"{nuc} fission net gain")
 
+        # --- Am-241 specific channels (cumulative) ---
+        am_fiss = data.get("Am241_fission", np.zeros_like(z))
+        am_nuf  = data.get("Am241_nu_fission", np.zeros_like(z))
+        am_net  = np.cumsum(am_nuf - am_fiss)
+        ax.plot(z, am_net, color="tab:pink", linewidth=1.5,
+                label="Am241 fission net gain")
+
+        am_n2n_raw = data.get("Am241_n2n", np.zeros_like(z))
+        am_n2n = np.cumsum(am_n2n_raw)
+        if am_n2n[-1] > 1e-20:
+            ax.plot(z, am_n2n, color="tab:pink", linewidth=1.2, linestyle="--",
+                    label="Am241 (n,2n) gain")
+
+        am_n3n_raw = data.get("Am241_n3n", np.zeros_like(z))
+        am_n3n = np.cumsum(2.0 * am_n3n_raw)
+        if am_n3n[-1] > 1e-20:
+            ax.plot(z, am_n3n, color="tab:pink", linewidth=1.2, linestyle=":",
+                    label="Am241 (n,3n) gain (\u00d72)")
+
         oa_fiss = data.get("other_act_fission", np.zeros_like(z))
         oa_nuf  = data.get("other_act_nu_fission", np.zeros_like(z))
         oa_net  = np.cumsum(oa_nuf - oa_fiss)
@@ -1127,10 +1164,15 @@ def plot_cumulative_neutron_balance(all_results):
                 label="Actinide (n,\u03b3) loss")
 
         # --- Total cumulative neutron budget ---
+        # Fission net gains (nu-fission minus fission = net neutrons produced)
+        # plus Am-241 (n,2n) [+1 net] and (n,3n) [+2 net]
         total = pb_n2n + np.cumsum(
             (data.get("U235_nu_fission", np.zeros_like(z)) - data.get("U235_fission", np.zeros_like(z)))
             + (data.get("U238_nu_fission", np.zeros_like(z)) - data.get("U238_fission", np.zeros_like(z)))
             + (data.get("Pu239_nu_fission", np.zeros_like(z)) - data.get("Pu239_fission", np.zeros_like(z)))
+            + (data.get("Am241_nu_fission", np.zeros_like(z)) - data.get("Am241_fission", np.zeros_like(z)))
+            + data.get("Am241_n2n", np.zeros_like(z))
+            + 2.0 * data.get("Am241_n3n", np.zeros_like(z))
             + (oa_nuf - oa_fiss)
         ) - nXt - act_cap
         ax.plot(z, total, color="black", linewidth=2.0, linestyle=":",
