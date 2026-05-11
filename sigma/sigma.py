@@ -66,7 +66,7 @@ MESH_DZ = 0.1                                 # Mesh tally z-resolution [cm] (1 
 N_MESH_Z = int(TOTAL_LENGTH / MESH_DZ)       # Number of mesh bins along z (1500)
 BATCHES = 50                                  # Number of batches
 INACTIVE_BATCHES = 10                         # Inactive batches (for fixed-source, set to 0)
-PARTICLES = 1000                             # Particles per batch
+PARTICLES = 100                             # Particles per batch
 # PbLi eutectic parameters (Li-17Pb-83 by atom fraction)
 PBLI_LI_ATOM_FRAC = 0.17                     # 17 at% Li (natural: 7.5% Li-6, 92.5% Li-7)
 PBLI_PB_ATOM_FRAC = 0.83                     # 83 at% Pb (natural isotopic mix)
