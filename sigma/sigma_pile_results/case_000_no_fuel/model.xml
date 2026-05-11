@@ -1,0 +1,86 @@
+<?xml version='1.0' encoding='utf-8'?>
+<model>
+  <materials>
+    <material id="1" name="PbLi_front">
+      <density value="9.49" units="g/cm3"/>
+      <nuclide name="Li6" ao="0.012903"/>
+      <nuclide name="Li7" ao="0.15709700000000001"/>
+      <nuclide name="Pb204" ao="0.01162"/>
+      <nuclide name="Pb206" ao="0.20002999999999999"/>
+      <nuclide name="Pb207" ao="0.18342999999999998"/>
+      <nuclide name="Pb208" ao="0.43492"/>
+    </material>
+  </materials>
+  <geometry>
+    <cell id="1" name="PbLi_full" material="1" region="1 -2 3 -4 5 -6" universe="1"/>
+    <surface id="1" type="z-plane" boundary="reflective" coeffs="0.0"/>
+    <surface id="2" type="z-plane" boundary="vacuum" coeffs="150.0"/>
+    <surface id="3" type="x-plane" boundary="reflective" coeffs="-0.5"/>
+    <surface id="4" type="x-plane" boundary="reflective" coeffs="0.5"/>
+    <surface id="5" type="y-plane" boundary="reflective" coeffs="-0.5"/>
+    <surface id="6" type="y-plane" boundary="reflective" coeffs="0.5"/>
+  </geometry>
+  <settings>
+    <run_mode>fixed source</run_mode>
+    <particles>1000</particles>
+    <batches>50</batches>
+    <inactive>0</inactive>
+    <source type="independent" strength="1.0" particle="neutron">
+      <space type="box">
+        <parameters>-0.5 -0.5 0.0 0.5 0.5 0.0</parameters>
+      </space>
+      <angle type="monodirectional" reference_uvw="0.0 0.0 1.0"/>
+      <energy type="discrete">
+        <parameters>14100000.0 1.0</parameters>
+      </energy>
+    </source>
+  </settings>
+  <tallies>
+    <mesh id="1">
+      <dimension>1 1 1500</dimension>
+      <lower_left>-0.5 -0.5 0.0</lower_left>
+      <upper_right>0.5 0.5 150.0</upper_right>
+    </mesh>
+    <filter id="1" type="material">
+      <bins>1</bins>
+    </filter>
+    <filter id="4" type="surface">
+      <bins>2</bins>
+    </filter>
+    <filter id="5" type="mesh">
+      <bins>1</bins>
+    </filter>
+    <filter id="6" type="meshsurface">
+      <bins>1</bins>
+    </filter>
+    <tally id="1" name="TBR">
+      <filters>1</filters>
+      <scores>(n,Xt)</scores>
+    </tally>
+    <tally id="2" name="n2n_rate">
+      <filters>1</filters>
+      <scores>(n,2n)</scores>
+    </tally>
+    <tally id="3" name="heating">
+      <filters>1</filters>
+      <scores>heating</scores>
+    </tally>
+    <tally id="4" name="leakage">
+      <filters>4</filters>
+      <scores>current</scores>
+    </tally>
+    <tally id="5" name="mesh_depth_profile">
+      <filters>5</filters>
+      <scores>(n,Xt) fission (n,gamma) (n,2n) flux heating absorption nu-fission</scores>
+    </tally>
+    <tally id="6" name="mesh_current_profile">
+      <filters>6</filters>
+      <scores>current</scores>
+    </tally>
+    <tally id="7" name="mesh_pb_n2n">
+      <filters>5</filters>
+      <nuclides>Pb204 Pb206 Pb207 Pb208</nuclides>
+      <scores>(n,2n)</scores>
+    </tally>
+  </tallies>
+</model>
