@@ -1,7 +1,12 @@
+# *.ext ignores the extension in all subdirs
+# /*.ext ignores files only in the root directory and not in subfolders
+# **/*.ext explicitly signals in any directory
+
 # Basics
-.DS_Store
 .git
 .venv
+*.DS_Store
+*Zone.Identifier
 
 # Jupyter Notebook
-.ipynb_checkpoints
+*.ipynb_checkpoints
