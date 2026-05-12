@@ -99,7 +99,7 @@ if _remainder > 0:
 # --- Monte Carlo settings ---
 batches      = 120
 inactive     =  20
-particles    = int(1e5)       # increase for production runs (≥50 000)
+particles    = int(1e4)       # increase for production runs (≥50 000)
 
 # --- Depletion chain ---
 chain_file = "/home/patri/openmc/data/chain_endfb81_fast.xml"
