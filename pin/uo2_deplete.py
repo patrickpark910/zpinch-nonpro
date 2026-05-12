@@ -328,6 +328,7 @@ def post_process(fuel_mat):
     mat_idx = list(r0.index_mat.values())[0]
 
     nuclides_of_interest = [
+        "O16", "O17", "O18",
         "U235", "U236", "U238",
         "Pu239", "Pu240", "Pu241", "Pu242",
         "Np237", "Am241",
@@ -335,6 +336,8 @@ def post_process(fuel_mat):
     ]
 
     nuclides_tracked = [
+        # Fuel chemistry
+        "O16", "O17", "O18",
         # Actinides
         "U234", "U235", "U236", "U238",
         "Np237",

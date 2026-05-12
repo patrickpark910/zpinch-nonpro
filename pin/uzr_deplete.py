@@ -102,7 +102,7 @@ inactive     =  20
 particles    = int(1e4)       # increase for production runs (≥50 000)
 
 # --- Depletion chain ---
-chain_file = "/home/ppark/openmc/data/chain_endfb81_fast.xml"
+chain_file = "/home/patri/openmc/data/chain_endfb81_fast.xml"
 
 # --- Output directories ---
 OPENMC_DIR   = "uzr_openmc"       # XMLs, H5s, statepoints, tallies

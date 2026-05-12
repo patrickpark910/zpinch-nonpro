@@ -41,10 +41,10 @@ INPUT_CSV  = "uo2_eol_inventory_tracked.csv"
 OUTPUT_CSV = "uo2_bol_inventory_zpinch.csv"
 
 # --- Decay schedule ---
-DECAY_YEARS   = 73.0                           # peak Am-241 buildup
+DECAY_YEARS   = 60.0                           # peak Am-241 buildup
 DAYS_PER_YEAR = 365.25
 DECAY_DAYS    = DECAY_YEARS * DAYS_PER_YEAR     # ≈ 26,663 days
-NUM_STEPS     = 73                              # one step per year
+NUM_STEPS     = 60                              # one step per year
 
 # --- Depletion chain ---
 # Use a PWR / thermal chain for UO₂ spent fuel.
@@ -260,6 +260,8 @@ def post_process(nuclide_atoms):
     # Must match nuclides_tracked in uo2_deplete.py so the full
     # Z-pinch blanket input vector is visible here.
     tracked = [
+        # Fuel chemistry
+        "O16", "O17", "O18",
         # Actinides
         "U234", "U235", "U236", "U238",
         "Np237",
