@@ -85,9 +85,9 @@ total_years   =  30.00
 
 # Build a schedule: 1 step of 60d (initial transient), then 5-year steps
 depletion_days = (
-    [60.0]    * 1  +     #    60 d  (initial transient)
-    [5*365.25] * 5  +    # 9131 d  (5 steps × 5 yr = years 1–26)
-)
+    [15.0]    * 2  +     #    60 d  (initial transient)
+    [5*365.25] * 5  )    # 9131 d  (5 steps × 5 yr = years 1–26)
+
 # Append remainder to reach 30 years exactly
 _scheduled = sum(depletion_days)
 _target_days = total_years * days_per_year
@@ -102,10 +102,10 @@ inactive     =  20
 particles    = int(1e4)       # increase for production runs (≥50 000)
 
 # --- Depletion chain ---
-chain_file = "/home/patri/openmc/data/chain_endfb81_fast.xml"
+chain_file = "/home/ppark/openmc/data/chain_endfb81_fast.xml"
 
 # --- Output directories ---
-OPENMC_DIR   = "OpenMC"       # XMLs, H5s, statepoints, tallies
+OPENMC_DIR   = "uzr_openmc"       # XMLs, H5s, statepoints, tallies
 RESULTS_DIR  = "./"      # figures, CSVs
 
 # --- Output file ---
@@ -255,7 +255,7 @@ def run_depletion(model):
     print(f"  Fuel density  : {fuel_density} g/cm³ (theoretical)")
     print(f"  Cladding      : HT-9")
     print(f"  Coolant       : Na, inlet/outlet 355/510 °C")
-    print(f"  Pin power     : {pin_power:.1f} W  ({pin_power/pin_length*100:.1f} W/cm)")
+    print(f"  Pin power     : {pin_power:.1f} W  ({pin_power/pin_length:.1f} W/cm)")
     print(f"  Assembly      : {pins_per_assy} pins  (1 of {n_assemblies} in core)")
     print(f"  Assy power    : {assy_power/1e6:.3f} MWth")
     print(f"  Depletion     : {sum(depletion_days)/days_per_year:.1f} years "
@@ -378,7 +378,7 @@ def post_process(fuel_mat):
 
     print("\n  Saving EOL inventory to CSV file...")
     import csv
-    csv_path = os.path.join(RESULTS_DIR, "eol_inventory.csv")
+    csv_path = os.path.join(RESULTS_DIR, "uzr_eol_inventory.csv")
     with open(csv_path, "w", newline="") as f:
         writer = csv.writer(f)
         writer.writerow(["nuclide", "atoms"])
@@ -389,7 +389,7 @@ def post_process(fuel_mat):
 
     # --- Save tracked nuclides as separate CSV for Z-pinch input ---
     print("\n  Saving tracked nuclide inventory to CSV file...")
-    csv_tracked_path = os.path.join(RESULTS_DIR, "eol_inventory_tracked.csv")
+    csv_tracked_path = os.path.join(RESULTS_DIR, "uzr_eol_inventory_tracked.csv")
     with open(csv_tracked_path, "w", newline="") as f:
         writer = csv.writer(f)
         writer.writerow(["nuclide", "atoms"])
@@ -417,7 +417,7 @@ def post_process(fuel_mat):
         ax.legend()
         ax.grid(True, alpha=0.3)
         fig.tight_layout()
-        plot_path = os.path.join(RESULTS_DIR, "keff_vs_time.png")
+        plot_path = os.path.join(RESULTS_DIR, "uzr_keff_vs_time.png")
         fig.savefig(plot_path, dpi=150)
         print(f"\n  Plot saved to {plot_path}")
     except ImportError:
