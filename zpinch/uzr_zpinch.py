@@ -67,20 +67,67 @@ except ImportError:
         "or build from source: https://docs.openmc.org"
     )
 
+"""
+MATPLOTLIB SETTINGS
+"""
+import matplotlib.pyplot as plt
+import matplotlib.font_manager as fm
+
+# Fonts
+# try:
+#     font_path = './Python/fonts/DIN-Regular.ttf' # DIN-Regular.ttf' # './Python/arial.ttf'
+#     fm.fontManager.addfont(font_path)
+#     prop = fm.FontProperties(fname=font_path)
+#     plt.rcParams['font.family'] = prop.get_name()
+# except:
+font_path = './figures/fonts/arial.ttf'
+fm.fontManager.addfont(font_path)
+prop = fm.FontProperties(fname=font_path)
+plt.rcParams['font.family'] = prop.get_name()
+plt.rcParams['mathtext.default'] = 'regular'
+plt.rcParams['pdf.fonttype'] = 42
+
+# Ticks
+plt.rcParams['xtick.direction']   = 'in'
+plt.rcParams['ytick.direction']   = 'in'
+plt.rcParams['xtick.major.width'] = 0.6
+plt.rcParams['ytick.major.width'] = 0.6
+plt.rcParams['xtick.major.size']  = 3.5
+plt.rcParams['ytick.major.size']  = 3.5
+plt.rcParams['xtick.minor.size']  = 2.0
+plt.rcParams['ytick.minor.size']  = 2.0
+plt.rcParams['axes.linewidth']    = 0.5
+plt.rcParams['grid.color'] = '#DBDBDB'
+plt.rcParams['grid.linewidth'] = 0.5
+
+# Font sizes
+plt.rcParams['font.size']        =  8
+plt.rcParams['axes.titlesize']   =  9
+plt.rcParams['axes.labelsize']   =  8
+plt.rcParams['xtick.labelsize']  =  7
+plt.rcParams['ytick.labelsize']  =  7
+plt.rcParams['legend.fontsize']  =  7
+plt.rcParams['figure.titlesize'] = 10
+
 # ==============================================================================
 # Configuration
 # ==============================================================================
 CSV_PATH = "uzr_bol_inventory_zpinch.csv"     # Path to spent fuel inventory CSV
 
 # --- Cylindrical wedge geometry ---
-R_INNER        = 1.0       # Inner blanket radius [cm] (plasma cavity boundary)
-R_OUTER        = 150.0     # Outer shielding vessel radius [cm] (3 m diameter)
-HALF_HEIGHT    = 75.0      # Half-height of blanket [cm] (total 150 cm)
+R_INNER        = 0.25      # Inner blanket radius [cm] (plasma cavity boundary)
+R_OUTER        = 200.0     # Outer shielding vessel radius [cm] (3 m diameter)
+HALF_HEIGHT    = 150.0     # Half-height of blanket [cm] (total 150 cm)
 WEDGE_ANGLE_DEG = 36.0     # Wedge opening angle [degrees] (1/10th of cylinder)
 
 # --- Source ---
 PINCH_HALF_LENGTH = 25.0   # Half-length of the Z-pinch plasma [cm] (50 cm total)
-SOURCE_SHELL_DR   = 0.1    # Thickness of source shell at inner surface [cm]
+SOURCE_SHELL_DR   = 0.01   # Thickness of source shell at inner surface [cm]
+
+EV_TO_J = 1.602176634e-19   # J per eV
+PULSE_HZ = 10.0              # Hz (pulses per second)
+N_PER_PULSE = 7.1e18
+N_PER_SEC   = N_PER_PULSE * PULSE_HZ
 
 # --- Fuel shell ---
 FUEL_SHELL_THICKNESS = 20.0  # Radial thickness of spent fuel annular shell [cm]
@@ -88,12 +135,8 @@ FUEL_SHELL_THICKNESS = 20.0  # Radial thickness of spent fuel annular shell [cm]
 # Shell midpoint positions [cm] — radial distance from R_INNER to the
 # centre of the 20 cm spent fuel shell.  Sweep covers the middle portion
 # of the blanket so there is always PbLi on both sides of the shell.
-_BLANKET_DEPTH = R_OUTER - R_INNER  # 149 cm
-SHELL_MIDPOINTS = np.arange(
-    R_OUTER / 5.0,                          # ~29.8 cm from inner wall
-    4.0 * R_OUTER / 5.0 + 1.0,              # ~120.2 cm (inclusive)
-    10.0,
-)
+_BLANKET_DEPTH = R_OUTER - R_INNER  # 
+SHELL_MIDPOINTS = [30.0, 50.0, 75, 100.0, 125, 150.0, 175, 189.0] 
 
 # --- Mesh tally ---
 MESH_DR   = 0.1                                   # Radial mesh resolution [cm]
@@ -101,7 +144,7 @@ N_MESH_R  = int((_BLANKET_DEPTH) / MESH_DR)       # Number of radial bins
 
 # --- Monte Carlo settings ---
 BATCHES   = 100
-PARTICLES = int(1e4)    # Increase for production runs (e.g. 50000)
+PARTICLES = int(1e3)    # Increase for production runs (e.g. 50000)
 
 # --- PbLi eutectic parameters (Li-17Pb-83 by atom fraction) ---
 PBLI_LI_ATOM_FRAC = 0.17
@@ -491,10 +534,15 @@ def run_case(shell_midpoint, pbli_mat, fuel_mat, run_index):
 
     # --- Tally 6: Heating in each region ---
     all_mats = pbli_filter_mats + ([fuel] if not no_fuel else [])
-    heating_tally = openmc.Tally(name="heating")
+    heating_tally = openmc.Tally(name="heating_local")
     heating_tally.filters = [openmc.MaterialFilter(all_mats)]
-    heating_tally.scores = ["heating"]
+    heating_tally.scores = ["heating-local"]
     tallies.append(heating_tally)
+
+    fisq_tally = openmc.Tally(name="fission_q_recoverable")
+    fisq_tally.filters = [openmc.MaterialFilter(all_mats)]
+    fisq_tally.scores = ["fission-q-recoverable"]
+    tallies.append(fisq_tally)
 
     # --- Tally 7: Neutron leakage through outer wall, ceiling, floor ---
     leak_surfaces = [cyl_outer, z_ceiling, z_floor]
@@ -629,11 +677,14 @@ def run_case(shell_midpoint, pbli_mat, fuel_mat, run_index):
         results["energy_bins_eV"] = energy_bins.tolist()
 
         # Heating
-        t = sp_file.get_tally(name="heating")
-        results["heating_eV_per_sp"] = {
-            m.name: float(t.mean[i][0][0])
-            for i, m in enumerate(all_mats)
-        }
+        t = sp_file.get_tally(name="heating_local")
+        results["heating_eV_per_sp"] = { m.name: float(t.mean[i][0][0]) for i, m in enumerate(all_mats) }
+        results["heating_W"] = { name: val * EV_TO_J * N_PER_SEC for name, val in results["heating_eV_per_sp"].items() }
+
+        # Fission Q recoverable
+        t = sp_file.get_tally(name="fission_q_recoverable")
+        results["fisq_eV_per_sp"] = { m.name: float(t.mean[i][0][0]) for i, m in enumerate(all_mats) }
+        results["fisq_W"] = { name: val * EV_TO_J * N_PER_SEC for name, val in results["fisq_eV_per_sp"].items() }
 
         # Leakage — itemised by surface (outer wall, ceiling, floor)
         t = sp_file.get_tally(name="leakage")
@@ -698,6 +749,28 @@ def run_case(shell_midpoint, pbli_mat, fuel_mat, run_index):
 
         mesh_csv_path = "uzr_mesh_depth_profiles.csv"
         _save_mesh_csv(mesh_csv_path, mesh_data)
+
+        # ----------------------------------------------------------
+        # k-inf from mesh tally (nu-fission / absorption over fuel shell)
+        # ----------------------------------------------------------
+        if not no_fuel:
+            fuel_mask = ((depth_centers >= shell_offset) &
+                         (depth_centers < shell_offset + FUEL_SHELL_THICKNESS))
+            nuf_sum = mesh_data["nu_fission_mean"][fuel_mask].sum()
+            abs_sum = mesh_data["absorption_mean"][fuel_mask].sum()
+            nuf_std_sum = np.sqrt((mesh_data["nu_fission_std"][fuel_mask]**2).sum())
+            abs_std_sum = np.sqrt((mesh_data["absorption_std"][fuel_mask]**2).sum())
+            if abs_sum > 0:
+                kinf = nuf_sum / abs_sum
+                rel_nuf = nuf_std_sum / nuf_sum if nuf_sum > 0 else 0.0
+                rel_abs = abs_std_sum / abs_sum if abs_sum > 0 else 0.0
+                kinf_std = kinf * np.sqrt(rel_nuf**2 + rel_abs**2)
+            else:
+                kinf = kinf_std = 0.0
+            results["k_inf"]     = kinf
+            results["k_inf_std"] = kinf_std
+        else:
+            results["k_inf"] = results["k_inf_std"] = 0.0
 
         # ----------------------------------------------------------
         # Per-nuclide mesh tallies for neutron balance
@@ -1001,7 +1074,7 @@ def plot_neutron_balance(all_results):
         return
 
     n_cases = len(fuel_results)
-    indices = np.linspace(0, n_cases - 1, min(4, n_cases), dtype=int)
+    indices = np.linspace(0, n_cases - 1, n_cases, dtype=int)
     blanket_depth = R_OUTER - R_INNER
 
     for ci in indices:
@@ -1107,7 +1180,7 @@ def plot_cumulative_neutron_balance(all_results):
         return
 
     n_cases = len(fuel_results)
-    indices = np.linspace(0, n_cases - 1, min(4, n_cases), dtype=int)
+    indices = np.linspace(0, n_cases - 1, n_cases, dtype=int)
     blanket_depth = R_OUTER - R_INNER
 
     for ci in indices:
@@ -1124,13 +1197,13 @@ def plot_cumulative_neutron_balance(all_results):
         midpt  = r["shell_midpoint_cm"]
         offset = r["shell_offset_cm"]
 
-        fig, ax = plt.subplots(figsize=(12, 6), constrained_layout=True)
+        fig, ax = plt.subplots(figsize=(6.5, 3.0), constrained_layout=True)
 
         # --- Cumulative GAINS (positive) ---
         pb_n2n = np.cumsum(data.get("pb_n2n", np.zeros_like(depth)))
-        ax.plot(depth, pb_n2n, color="tab:blue", linewidth=1.5,
+        ax.plot(depth, pb_n2n, color="tab:blue", linewidth=0.75,
                 label="Pb (n,2n) gain")
-        ax.fill_between(depth, 0, pb_n2n, alpha=0.15, color="tab:blue")
+        # ax.fill_between(depth, 0, pb_n2n, alpha=0.15, color="tab:blue")
 
         for nuc, color, ls in [("U235", "tab:red", "-"),
                                 ("U238", "tab:orange", "-"),
@@ -1138,46 +1211,46 @@ def plot_cumulative_neutron_balance(all_results):
             fiss = data.get(f"{nuc}_fission", np.zeros_like(depth))
             nu_f = data.get(f"{nuc}_nu_fission", np.zeros_like(depth))
             net = np.cumsum(nu_f - fiss)
-            ax.plot(depth, net, color=color, linewidth=1.5, linestyle=ls,
+            ax.plot(depth, net, color=color, linewidth=0.75, linestyle=ls,
                     label=f"{nuc} fission net gain")
 
         am_fiss = data.get("Am241_fission", np.zeros_like(depth))
         am_nuf  = data.get("Am241_nu_fission", np.zeros_like(depth))
         am_net  = np.cumsum(am_nuf - am_fiss)
-        ax.plot(depth, am_net, color="tab:pink", linewidth=1.5,
+        ax.plot(depth, am_net, color="tab:pink", linewidth=0.75,
                 label="Am241 fission net gain")
 
         am_n2n_raw = data.get("Am241_n2n", np.zeros_like(depth))
         am_n2n = np.cumsum(am_n2n_raw)
         if am_n2n[-1] > 1e-20:
-            ax.plot(depth, am_n2n, color="tab:pink", linewidth=1.2,
+            ax.plot(depth, am_n2n, color="tab:pink", linewidth=0.75,
                     linestyle="--", label="Am241 (n,2n) gain")
 
         am_n3n_raw = data.get("Am241_n3n", np.zeros_like(depth))
         am_n3n = np.cumsum(2.0 * am_n3n_raw)
         if am_n3n[-1] > 1e-20:
-            ax.plot(depth, am_n3n, color="tab:pink", linewidth=1.2,
+            ax.plot(depth, am_n3n, color="tab:pink", linewidth=0.75,
                     linestyle=":", label="Am241 (n,3n) gain (\u00d72)")
 
         oa_fiss = data.get("other_act_fission", np.zeros_like(depth))
         oa_nuf  = data.get("other_act_nu_fission", np.zeros_like(depth))
         oa_net  = np.cumsum(oa_nuf - oa_fiss)
         if np.abs(oa_net).max() > 1e-15:
-            ax.plot(depth, oa_net, color="tab:olive", linewidth=1.2,
+            ax.plot(depth, oa_net, color="tab:olive", linewidth=0.75,
                     linestyle="--", label="Other actinide fission net")
 
         # --- Cumulative LOSSES (negative) ---
         nXt = np.cumsum(data.get("nXt", np.zeros_like(depth)))
-        ax.plot(depth, -nXt, color="tab:purple", linewidth=1.5,
+        ax.plot(depth, -nXt, color="tab:purple", linewidth=0.75,
                 label="(n,Xt) tritium loss")
-        ax.fill_between(depth, 0, -nXt, alpha=0.1, color="tab:purple")
+        # ax.fill_between(depth, 0, -nXt, alpha=0.1, color="tab:purple")
 
         act_cap_raw = np.zeros_like(depth)
         for nuc in KEY_ACTINIDES:
             act_cap_raw += data.get(f"{nuc}_ngamma", np.zeros_like(depth))
         act_cap_raw += data.get("other_act_ngamma", np.zeros_like(depth))
         act_cap = np.cumsum(act_cap_raw)
-        ax.plot(depth, -act_cap, color="tab:brown", linewidth=1.5,
+        ax.plot(depth, -act_cap, color="tab:brown", linewidth=0.75,
                 label="Actinide (n,\u03b3) loss")
 
         # --- Total cumulative budget ---
@@ -1194,29 +1267,29 @@ def plot_cumulative_neutron_balance(all_results):
             + 2.0 * data.get("Am241_n3n", np.zeros_like(depth))
             + (oa_nuf - oa_fiss)
         ) - nXt - act_cap
-        ax.plot(depth, total, color="black", linewidth=2.0, linestyle=":",
+        ax.plot(depth, total, color="black", linewidth=0.75, linestyle=":",
                 label="Net cumulative balance")
 
         ax.axvspan(offset, offset + FUEL_SHELL_THICKNESS, color="gray",
                    alpha=0.15, label="Spent fuel shell")
 
         ax.axhline(0, color="black", linewidth=0.4)
-        ax.set_xlabel("Radial depth from inner wall [cm]")
-        ax.set_ylabel(
-            "Cumulative neutrons gained (+) or lost (\u2212)\n"
-            "per source neutron"
-        )
-        ax.set_title(
-            f"Cumulative neutron balance \u2014 "
-            f"fuel shell midpoint = {midpt:.0f} cm"
-        )
-        ax.legend(fontsize=8, loc="best", ncol=2)
+        ax.set_xlabel("Radius [cm]")
+        ax.set_ylabel("Cumulative neutrons gained / src-n")
+        # ax.set_title(
+        #     f"Cumulative neutron balance \u2014 "
+        #     f"fuel shell midpoint = {midpt:.0f} cm"
+        # )
+        ax.legend(fontsize=2, loc="best", ncol=2)
         ax.grid(True, alpha=0.2)
         ax.set_xlim(0, blanket_depth)
 
+        leg = plt.legend(fancybox=False, edgecolor='black', frameon=True, framealpha=.75, ncol=2)
+        leg.get_frame().set_linewidth(0.5) 
+
         plot_path = os.path.join(
             OUTPUT_DIR,
-            f"uzr_zpinch_cumulative_nbal_mid{midpt:.0f}cm.png"
+            f"uzr_zpinch_cumulative_nbal_mid{midpt:.0f}cm.pdf"
         )
         fig.savefig(plot_path, dpi=200)
         print(f"Cumulative neutron balance plot saved to: {plot_path}")
@@ -1332,6 +1405,8 @@ def main():
               f"\u00b1 {result.get('n2n_std', 0):.6e}")
         print(f"  Leakage total = {result['leakage_mean']:.6e} "
               f"\u00b1 {result['leakage_std']:.6e}")
+        print(f"  k_inf         = {result.get('k_inf', 0):.6f} "
+              f"\u00b1 {result.get('k_inf_std', 0):.6f}")
         if "mesh_csv" in result:
             print(f"  Mesh CSV      = {result['mesh_csv']}")
 
@@ -1348,11 +1423,11 @@ def main():
     plot_cumulative_neutron_balance(all_results)
 
     # Print summary table
-    print("\n" + "=" * 100)
+    print("\n" + "=" * 114)
     print(f"{'Midpoint [cm]':>14}  {'TBR':>12}  {'Fission':>12}  "
-          f"{'Capture':>12}  {'(n,2n)':>12}  {'Leak tot':>12}  "
+          f"{'Capture':>12}  {'(n,2n)':>12}  {'k_inf':>12}  {'Leak tot':>12}  "
           f"{'Leak axial':>12}")
-    print("-" * 100)
+    print("-" * 114)
     for r in all_results:
         mid = r['shell_midpoint_cm']
         label = f"{mid:14.1f}" if mid is not None else "    (no fuel) "
@@ -1363,9 +1438,10 @@ def main():
               f"{r['fission_mean']:12.6e}  "
               f"{r['capture_mean']:12.6e}  "
               f"{r.get('n2n_mean',0):12.6e}  "
+              f"{r.get('k_inf',0):12.6f}  "
               f"{r['leakage_mean']:12.6e}  "
               f"{axial_leak:12.6e}")
-    print("=" * 100)
+    print("=" * 114)
     print("\nDone.")
 
 
